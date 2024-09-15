@@ -1,34 +1,50 @@
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, abort, url_for
+from flask_cors import CORS
 
-app = Flask(__name__)
+import os
+import base64
+from flask import Flask, jsonify, request, abort, url_for
+from werkzeug.utils import secure_filename
 
-# Sample data
-books = [
-    {"id": 1, "title": "To Kill a Mockingbird", "author": "Harper Lee"},
-    {"id": 2, "title": "1984", "author": "George Orwell"},
-    {"id": 3, "title": "The Great Gatsby", "author": "F. Scott Fitzgerald"}
-]
+app = Flask(__name__, static_folder='images', static_url_path='/static')
+CORS(app)
 
-# Route to get all books
-@app.route('/books', methods=['GET'])
-def get_books():
-    return jsonify(books)
+# Ensure the 'images' directory exists
+if not os.path.exists('images'):
+    os.makedirs('images')
 
-# Route to get a specific book
-@app.route('/books/<int:book_id>', methods=['GET'])
-def get_book(book_id):
-    book = next((book for book in books if book['id'] == book_id), None)
-    if book:
-        return jsonify(book)
-    return jsonify({"error": "Book not found"}), 404
+# Route to save images
+@app.route('/save-image', methods=['POST'])
+def save_image():
+    if 'base64' not in request.json:
+        abort(400, description="Missing base64 data")
+    
+    try:
+        # Remove the "data:image/png;base64," prefix if present
+        base64_data = request.json['base64'].split(',')[-1]
+        
+        # Decode the base64 string
+        image_data = base64.b64decode(base64_data)
+        
+        # Generate a unique filename
+        filename = secure_filename(f"image_{len(os.listdir('images')) + 1}.png")
+        filepath = os.path.join('images', filename)
+        
+        # Save the image
+        with open(filepath, 'wb') as f:
+            f.write(image_data)
+        
+        # Generate the URL for the saved image
+        image_url = url_for('static', filename=filename, _external=True)
+        
+        return jsonify({"url": image_url}), 200
+    except Exception as e:
+        abort(400, description=f"Error processing image: {str(e)}")
 
-# Route to add a new book
-@app.route('/books', methods=['POST'])
-def add_book():
-    new_book = request.json
-    new_book['id'] = len(books) + 1
-    books.append(new_book)
-    return jsonify(new_book), 201
+@app.after_request
+def add_header(response):
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    return response
 
 if __name__ == '__main__':
     app.run(debug=True)
